@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { poolPromise, sql } = require('../db');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
+const { loginLimiter } = require('../middleware/rateLimiter');
 
 function generateAccessToken(user) {
     return jwt.sign(user, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN })
@@ -45,6 +46,7 @@ router.post('/register',
     });
 
 router.post('/login',
+    loginLimiter,
     [
         body('username').trim().notEmpty().withMessage('Username is required').escape(),
         body('password').notEmpty().withMessage('Password is required'),
