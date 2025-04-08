@@ -1,26 +1,31 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const router = express.Router();
-const { sql, poolPromise } = require('./db');
 const jwt = require('jsonwebtoken');
+const {poolPromise, sql} = require('../db');
+const router = express.Router();
 
-// Register
+function generateAccessToken(user) {
+    return jwt.sign(user, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN })
+}
+function generateRefreshToken(user) {
+    return jwt.sign(user, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' })
+}
+
 router.post('/register', async (req, res) => {
-    const { username, email, password } = req.body;
+    const { username, email, password, role } = req.body;
 
     try {
         const pool = await poolPromise;
         const hashedPassword = await bcrypt.hash(password, 10);
-        // encrypt plain text
-        // 10 tingkat kompleksitas enkripsi
 
         await pool.request()
             .input('username', sql.VarChar, username)
             .input('email', sql.VarChar, email)
             .input('password', sql.VarChar, hashedPassword)
+            .input('role', sql.VarChar, role)
             .query(`
-                INSERT INTO Users (username, email, password)
-                VALUES (@username, @email, @password)
+                INSERT INTO Users (username, email, password, role)
+                VALUES (@username, @email, @password, @role)
             `);
 
         res.status(201).json({ message: 'User registered successfully' })
@@ -29,15 +34,6 @@ router.post('/register', async (req, res) => {
     }
 });
 
-// =========== HANDLE LOGIN REFRESH TOKEN =======================
-function generateAccessToken(user) {
-    return jwt.sign(user, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN })
-}
-function generateRefreshToken(user) {
-    return jwt.sign(user, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' })
-}
-
-// Login
 router.post('/login', async (req, res) => {
     const { username, password } = req.body;
 
@@ -47,18 +43,13 @@ router.post('/login', async (req, res) => {
             .input('username', sql.VarChar, username)
             .query('SELECT * FROM Users WHERE username = @username');
 
-        if (result.recordset.length === 0) {
-            return res.status(401).json({ message: 'Invalid credentials' })
-        }
+        if (result.recordset.length === 0) return res.status(401).json({ message: 'Invalid credentials' })
 
         const user = result.recordset[0];
         // { id, username, email, password, created_at } sumber dari DB
 
         const isMatch = await bcrypt.compare(password, user.password);
-
-        if (!isMatch) {
-            return res.status(401).json({ message: 'Invalid credentials!' })
-        }
+        if (!isMatch) return res.status(401).json({ message: 'Invalid credentials!' }) 
 
         const payload = {
             id: user.id,
@@ -85,9 +76,9 @@ router.post('/login', async (req, res) => {
     }
 })
 
+
 router.post('/refresh-token', async (req, res) => {
     const { refreshToken } = req.body;
-
     if (!refreshToken) return res.status(401).json({ message: 'Refresh token required' })
 
     try {
@@ -96,10 +87,10 @@ router.post('/refresh-token', async (req, res) => {
             .input('refreshToken', sql.VarChar, refreshToken)
             .query('SELECT * FROM Users WHERE refreshToken = @refreshToken')
 
-        if (result.recordset.length === 0) {
-            return res.status(403).json({ message: 'Invalid refresh token!' })
-        }
+        if (result.recordset.length === 0) return res.status(403).json({ message: 'Invalid refresh token!' })
+        
         const user = result.recordset[0];
+        
         jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, (err, decoded) => {
             if (err) return res.status(403).json({ message: 'Invalid or expired refresh token' });
             const payload = {
@@ -116,6 +107,7 @@ router.post('/refresh-token', async (req, res) => {
         res.status(500).json({ error: err.message })
     }
 });
+
 
 router.post('/logout', async (req, res) => {
     const { refreshToken } = req.body;
