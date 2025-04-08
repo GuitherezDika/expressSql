@@ -44,7 +44,7 @@ router.post('/login', async (req, res) => {
         }
 
         const user = result.recordset[0];
-        // { id, username, email, password, created_at }
+        // { id, username, email, password, created_at } sumber dari DB
 
         const isMatch = await bcrypt.compare(password, user.password);
 
